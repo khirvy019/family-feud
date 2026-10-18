@@ -48,14 +48,15 @@ constant for the whole game from the per-action history:
 {
   fixedGameState: {
     activeQuestionSetId,        // which saved question set is being played
-    isTiebreaker,               // whether this is a tiebreaker round
-    usedTiebreakerQuestions     // indices already used for tiebreakers
+    teamAName,                  // team names never change mid-game
+    teamBName
   },
   history: [                    // ordered snapshots; last element == current state
-    // each entry: currentRoundIndex, currentQuestion, team names, scores,
+    // each entry: currentRoundIndex, currentQuestion, team scores,
     // revealedAnswerIndices (array on disk, Set in memory), roundPoints,
     // strikes, currentTeam, faceoffWinner, playOrPassDecision, phase,
-    // stealAttemptStatus, roundComplete, roundAwarded, gameOver
+    // stealAttemptStatus, roundComplete, roundAwarded, gameOver,
+    // isTiebreaker, usedTiebreakerQuestions
   ]
 }
 ```

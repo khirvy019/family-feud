@@ -9,13 +9,11 @@ function createEmptyGameState() {
     return {
         currentRoundIndex: -1,
         currentQuestion: null,
-        
-        // Teams
-        teamAName: 'Team A',
-        teamBName: 'Team B',
+
+        // Cumulative scores (change over the course of a game)
         teamAScore: 0,
         teamBScore: 0,
-        
+
         // Round state
         revealedAnswerIndices: new Set(),
         roundPoints: 0,
@@ -23,22 +21,27 @@ function createEmptyGameState() {
         currentTeam: null, // 'A' or 'B'
         faceoffWinner: null, // 'A' or 'B'
         playOrPassDecision: null, // 'PLAY' or 'PASS'
-        
+
         // Game phases
         phase: 'MENU', // MENU, READY, FACEOFF, PLAY_OR_PASS, BOARD_PLAY, STEAL, ROUND_COMPLETE, AWARDED, GAME_OVER
         stealAttemptStatus: null, // 'PENDING', 'SUCCESS', 'FAILED', 'NONE'
         roundComplete: false,
         roundAwarded: false,
-        gameOver: false
+        gameOver: false,
+
+        // Tiebreaker state (can change during a game, so it is part of history)
+        isTiebreaker: false,
+        usedTiebreakerQuestions: []
     };
 }
 
 function createEmptyFixedState() {
     return {
+        // Constant for the whole game
         activeQuestionSetId: null,
-        activeQuestionSet: null,
-        isTiebreaker: false,
-        usedTiebreakerQuestions: []
+        activeQuestionSet: null, // derived from id at runtime, not persisted
+        teamAName: 'Team A',
+        teamBName: 'Team B'
     };
 }
 
@@ -138,8 +141,8 @@ function loadSavedGame() {
             const fixed = {
                 activeQuestionSetId: last.activeQuestionSetId || null,
                 activeQuestionSet: questionSets.find(s => s.id === last.activeQuestionSetId) || null,
-                isTiebreaker: !!last.isTiebreaker,
-                usedTiebreakerQuestions: last.usedTiebreakerQuestions || []
+                teamAName: last.teamAName || 'Team A',
+                teamBName: last.teamBName || 'Team B'
             };
             return { fixedGameState: fixed, history: restored };
         }
@@ -149,8 +152,8 @@ function loadSavedGame() {
             const fixed = {
                 activeQuestionSetId: fixedRaw.activeQuestionSetId || null,
                 activeQuestionSet: questionSets.find(s => s.id === fixedRaw.activeQuestionSetId) || null,
-                isTiebreaker: !!fixedRaw.isTiebreaker,
-                usedTiebreakerQuestions: fixedRaw.usedTiebreakerQuestions || []
+                teamAName: fixedRaw.teamAName || 'Team A',
+                teamBName: fixedRaw.teamBName || 'Team B'
             };
             return { fixedGameState: fixed, history: saved.history.map(restoreState) };
         }
@@ -169,8 +172,8 @@ function persistHistory() {
         });
         const fixedToSave = {
             activeQuestionSetId: GameFixedState.activeQuestionSetId,
-            isTiebreaker: GameFixedState.isTiebreaker,
-            usedTiebreakerQuestions: GameFixedState.usedTiebreakerQuestions
+            teamAName: GameFixedState.teamAName,
+            teamBName: GameFixedState.teamBName
         };
         localStorage.setItem(LS_SAVED_GAME, JSON.stringify({
             fixedGameState: fixedToSave,
@@ -186,8 +189,6 @@ function stateKey(state) {
     return JSON.stringify({
         currentRoundIndex: state.currentRoundIndex,
         currentQuestion: state.currentQuestion,
-        teamAName: state.teamAName,
-        teamBName: state.teamBName,
         teamAScore: state.teamAScore,
         teamBScore: state.teamBScore,
         revealedAnswerIndices: Array.from(state.revealedAnswerIndices || []).sort((a, b) => a - b),
@@ -200,7 +201,9 @@ function stateKey(state) {
         stealAttemptStatus: state.stealAttemptStatus,
         roundComplete: state.roundComplete,
         roundAwarded: state.roundAwarded,
-        gameOver: state.gameOver
+        gameOver: state.gameOver,
+        isTiebreaker: state.isTiebreaker,
+        usedTiebreakerQuestions: state.usedTiebreakerQuestions || []
     });
 }
 
@@ -427,8 +430,8 @@ function handleQuestionSetAction(id, action) {
 }
 
 function populateTeamSetup() {
-    document.getElementById('team-a-name').value = GameState.teamAName;
-    document.getElementById('team-b-name').value = GameState.teamBName;
+    document.getElementById('team-a-name').value = GameFixedState.teamAName;
+    document.getElementById('team-b-name').value = GameFixedState.teamBName;
 }
 
 function openEditorForSet(set) {
@@ -798,8 +801,8 @@ function setupEventListeners() {
     });
     
     document.getElementById('btn-start-game-confirmed').addEventListener('click', () => {
-        GameState.teamAName = document.getElementById('team-a-name').value.trim() || 'Team A';
-        GameState.teamBName = document.getElementById('team-b-name').value.trim() || 'Team B';
+        GameFixedState.teamAName = document.getElementById('team-a-name').value.trim() || 'Team A';
+        GameFixedState.teamBName = document.getElementById('team-b-name').value.trim() || 'Team B';
         startNewGame();
     });
     
@@ -859,11 +862,11 @@ function startNewGame() {
     GameState.currentRoundIndex = 0;
     GameState.teamAScore = 0;
     GameState.teamBScore = 0;
-    GameState.teamAName = GameState.teamAName || 'Team A';
-    GameState.teamBName = GameState.teamBName || 'Team B';
+    GameFixedState.teamAName = GameFixedState.teamAName || 'Team A';
+    GameFixedState.teamBName = GameFixedState.teamBName || 'Team B';
     GameState.gameOver = false;
-    GameFixedState.isTiebreaker = false;
-    GameFixedState.usedTiebreakerQuestions = [];
+    GameState.isTiebreaker = false;
+    GameState.usedTiebreakerQuestions = [];
     GameStateHistory = [];
     
     resetGameForNewRound();
@@ -886,8 +889,8 @@ function resumeGame() {
     GameFixedState = {
         activeQuestionSetId: stored.fixedGameState.activeQuestionSetId,
         activeQuestionSet: stored.fixedGameState.activeQuestionSet,
-        isTiebreaker: !!stored.fixedGameState.isTiebreaker,
-        usedTiebreakerQuestions: stored.fixedGameState.usedTiebreakerQuestions || []
+        teamAName: stored.fixedGameState.teamAName || 'Team A',
+        teamBName: stored.fixedGameState.teamBName || 'Team B'
     };
     
     // Load the latest state into GameState
@@ -909,14 +912,14 @@ function loadCurrentRound() {
     const set = GameFixedState.activeQuestionSet;
     if (!set || !set.questions) return;
     
-    if (GameFixedState.isTiebreaker) {
+    if (GameState.isTiebreaker) {
         // Find unused question
         let question = null;
         for (let i = set.questions.length - 1; i >= 0; i--) {
-            if (!GameFixedState.usedTiebreakerQuestions.includes(i)) {
+            if (!GameState.usedTiebreakerQuestions.includes(i)) {
                 question = set.questions[i];
                 GameState.currentQuestion = question;
-                GameFixedState.usedTiebreakerQuestions.push(i);
+                GameState.usedTiebreakerQuestions.push(i);
                 break;
             }
         }
@@ -936,7 +939,7 @@ function loadCurrentRound() {
 }
 
 function nextRound() {
-    if (GameFixedState.isTiebreaker) {
+    if (GameState.isTiebreaker) {
         // End tiebreaker
         endGame();
         return;
@@ -976,13 +979,13 @@ function updateUI() {
 }
 
 function updateHeader() {
-    document.getElementById('round-number').textContent = GameFixedState.isTiebreaker ? 'TB' : (GameState.currentRoundIndex + 1);
+    document.getElementById('round-number').textContent = GameState.isTiebreaker ? 'TB' : (GameState.currentRoundIndex + 1);
     document.getElementById('current-question').textContent = GameState.currentQuestion ? GameState.currentQuestion.prompt : 'No question';
 }
 
 function updateScoreboard() {
-    document.getElementById('display-team-a').textContent = GameState.teamAName;
-    document.getElementById('display-team-b').textContent = GameState.teamBName;
+    document.getElementById('display-team-a').textContent = GameFixedState.teamAName;
+    document.getElementById('display-team-b').textContent = GameFixedState.teamBName;
     document.getElementById('team-a-points').textContent = GameState.teamAScore;
     document.getElementById('team-b-points').textContent = GameState.teamBScore;
     
@@ -1036,7 +1039,7 @@ function updateGameInfo() {
     
     document.getElementById('game-phase').textContent = formatPhase(GameState.phase);
     document.getElementById('current-team').textContent = GameState.currentTeam ? 
-        (GameState.currentTeam === 'A' ? GameState.teamAName : GameState.teamBName) : '-';
+        (GameState.currentTeam === 'A' ? GameFixedState.teamAName : GameFixedState.teamBName) : '-';
 }
 
 function formatPhase(phase) {
@@ -1063,8 +1066,8 @@ function updateControls() {
             break;
         case PHASES.FACEOFF:
             html = `
-                <button class="dynamic-btn faceoff" id="btn-team-a-wins">Team A Wins</button>
-                <button class="dynamic-btn faceoff" id="btn-team-b-wins">Team B Wins</button>
+                <button class="dynamic-btn faceoff" id="btn-team-a-wins">${GameFixedState.teamAName} Wins</button>
+                <button class="dynamic-btn faceoff" id="btn-team-b-wins">${GameFixedState.teamBName} Wins</button>
             `;
             break;
         case PHASES.PLAY_OR_PASS:
@@ -1234,16 +1237,16 @@ function updateResults() {
     const winnerMsg = document.getElementById('winner-message');
     const tiebreakerSec = document.getElementById('tiebreaker-section');
     
-    if (taName) taName.textContent = GameState.teamAName;
-    if (tbName) tbName.textContent = GameState.teamBName;
+    if (taName) taName.textContent = GameFixedState.teamAName;
+    if (tbName) tbName.textContent = GameFixedState.teamBName;
     if (taScore) taScore.textContent = GameState.teamAScore;
     if (tbScore) tbScore.textContent = GameState.teamBScore;
     
     if (GameState.teamAScore > GameState.teamBScore) {
-        winnerMsg.textContent = `${GameState.teamAName} Wins!`;
+        winnerMsg.textContent = `${GameFixedState.teamAName} Wins!`;
         tiebreakerSec.style.display = 'none';
     } else if (GameState.teamBScore > GameState.teamAScore) {
-        winnerMsg.textContent = `${GameState.teamBName} Wins!`;
+        winnerMsg.textContent = `${GameFixedState.teamBName} Wins!`;
         tiebreakerSec.style.display = 'none';
     } else {
         winnerMsg.textContent = "It's a Tie!";
@@ -1269,7 +1272,7 @@ function setupMoreEventListeners() {
     document.getElementById('btn-start-tiebreaker').addEventListener('click', () => {
         if (!GameFixedState.activeQuestionSet) return;
         clearSavedGame();
-        GameFixedState.isTiebreaker = true;
+        GameState.isTiebreaker = true;
         GameState.currentRoundIndex = 0;
         GameState.teamAScore = 0;
         GameState.teamBScore = 0;
