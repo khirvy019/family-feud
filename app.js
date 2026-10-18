@@ -5,45 +5,51 @@
  */
 
 // Game State Structure
-const GameState = {
-    // Question set
-    activeQuestionSetId: null,
-    activeQuestionSet: null,
-    currentRoundIndex: -1,
-    currentQuestion: null,
-    
-    // Teams
-    teamAName: 'Team A',
-    teamBName: 'Team B',
-    teamAScore: 0,
-    teamBScore: 0,
-    
-    // Round state
-    revealedAnswerIndices: new Set(),
-    roundPoints: 0,
-    strikes: 0,
-    currentTeam: null, // 'A' or 'B'
-    faceoffWinner: null, // 'A' or 'B'
-    playOrPassDecision: null, // 'PLAY' or 'PASS'
-    
-    // Game phases
-    phase: 'MENU', // MENU, READY, FACEOFF, PLAY_OR_PASS, BOARD_PLAY, STEAL, ROUND_COMPLETE, AWARDED, GAME_OVER
-    stealAttemptStatus: null, // 'PENDING', 'SUCCESS', 'FAILED', 'NONE'
-    roundComplete: false,
-    roundAwarded: false,
-    gameOver: false,
-    isTiebreaker: false,
-    usedTiebreakerQuestions: [],
-    
-    // Undo history
-    history: []
-};
+function createEmptyGameState() {
+    return {
+        currentRoundIndex: -1,
+        currentQuestion: null,
+        
+        // Teams
+        teamAName: 'Team A',
+        teamBName: 'Team B',
+        teamAScore: 0,
+        teamBScore: 0,
+        
+        // Round state
+        revealedAnswerIndices: new Set(),
+        roundPoints: 0,
+        strikes: 0,
+        currentTeam: null, // 'A' or 'B'
+        faceoffWinner: null, // 'A' or 'B'
+        playOrPassDecision: null, // 'PLAY' or 'PASS'
+        
+        // Game phases
+        phase: 'MENU', // MENU, READY, FACEOFF, PLAY_OR_PASS, BOARD_PLAY, STEAL, ROUND_COMPLETE, AWARDED, GAME_OVER
+        stealAttemptStatus: null, // 'PENDING', 'SUCCESS', 'FAILED', 'NONE'
+        roundComplete: false,
+        roundAwarded: false,
+        gameOver: false
+    };
+}
+
+function createEmptyFixedState() {
+    return {
+        activeQuestionSetId: null,
+        activeQuestionSet: null,
+        isTiebreaker: false,
+        usedTiebreakerQuestions: []
+    };
+}
+
+const GameState = createEmptyGameState();
+let GameFixedState = createEmptyFixedState();
+let GameStateHistory = []; // Array of GameState snapshots, 0 = earliest, last = latest
 
 // UI State
 let currentScreen = 'screen-menu';
 let editingQuestionSetId = null;
 let editingQuestionId = null;
-let showUndoMessage = false;
 
 // Constants
 const PHASES = {
@@ -107,19 +113,46 @@ function saveQuestionSets() {
     }
 }
 
+function restoreState(h) {
+    const s = { ...h };
+    if (h && h.revealedAnswerIndices && Array.isArray(h.revealedAnswerIndices)) {
+        s.revealedAnswerIndices = new Set(h.revealedAnswerIndices);
+    } else {
+        s.revealedAnswerIndices = new Set();
+    }
+    return s;
+}
+
 function loadSavedGame() {
     try {
         const data = localStorage.getItem(LS_SAVED_GAME);
-        if (data) {
-            const game = JSON.parse(data);
-            // Restore Sets properly
-            if (game.revealedAnswerIndices && Array.isArray(game.revealedAnswerIndices)) {
-                game.revealedAnswerIndices = new Set(game.revealedAnswerIndices);
-            } else {
-                game.revealedAnswerIndices = new Set();
-            }
-            if (!game.history) game.history = [];
-            return game;
+        if (!data) return null;
+        const saved = JSON.parse(data);
+        if (!saved) return null;
+
+        if (Array.isArray(saved)) {
+            // Legacy format (array of states) - migrate
+            if (saved.length === 0) return null;
+            const restored = saved.map(restoreState);
+            const last = restored[restored.length - 1];
+            const fixed = {
+                activeQuestionSetId: last.activeQuestionSetId || null,
+                activeQuestionSet: questionSets.find(s => s.id === last.activeQuestionSetId) || null,
+                isTiebreaker: !!last.isTiebreaker,
+                usedTiebreakerQuestions: last.usedTiebreakerQuestions || []
+            };
+            return { fixedGameState: fixed, history: restored };
+        }
+
+        if (Array.isArray(saved.history)) {
+            const fixedRaw = saved.fixedGameState || {};
+            const fixed = {
+                activeQuestionSetId: fixedRaw.activeQuestionSetId || null,
+                activeQuestionSet: questionSets.find(s => s.id === fixedRaw.activeQuestionSetId) || null,
+                isTiebreaker: !!fixedRaw.isTiebreaker,
+                usedTiebreakerQuestions: fixedRaw.usedTiebreakerQuestions || []
+            };
+            return { fixedGameState: fixed, history: saved.history.map(restoreState) };
         }
     } catch (e) {
         console.warn('Failed to load saved game:', e);
@@ -127,15 +160,77 @@ function loadSavedGame() {
     return null;
 }
 
-function saveGameState() {
+function persistHistory() {
     try {
-        const gameToSave = deepClone(GameState);
-        // Convert Set to array for storage
-        gameToSave.revealedAnswerIndices = Array.from(gameToSave.revealedAnswerIndices);
-        localStorage.setItem(LS_SAVED_GAME, JSON.stringify(gameToSave));
+        const historyToSave = GameStateHistory.map(h => {
+            const clone = deepClone(h);
+            clone.revealedAnswerIndices = Array.from(clone.revealedAnswerIndices).sort((a, b) => a - b);
+            return clone;
+        });
+        const fixedToSave = {
+            activeQuestionSetId: GameFixedState.activeQuestionSetId,
+            isTiebreaker: GameFixedState.isTiebreaker,
+            usedTiebreakerQuestions: GameFixedState.usedTiebreakerQuestions
+        };
+        localStorage.setItem(LS_SAVED_GAME, JSON.stringify({
+            fixedGameState: fixedToSave,
+            history: historyToSave
+        }));
     } catch (e) {
         console.warn('Failed to save game state:', e);
     }
+}
+
+// A stable string key for comparing two states (Sets become sorted arrays)
+function stateKey(state) {
+    return JSON.stringify({
+        currentRoundIndex: state.currentRoundIndex,
+        currentQuestion: state.currentQuestion,
+        teamAName: state.teamAName,
+        teamBName: state.teamBName,
+        teamAScore: state.teamAScore,
+        teamBScore: state.teamBScore,
+        revealedAnswerIndices: Array.from(state.revealedAnswerIndices || []).sort((a, b) => a - b),
+        roundPoints: state.roundPoints,
+        strikes: state.strikes,
+        currentTeam: state.currentTeam,
+        faceoffWinner: state.faceoffWinner,
+        playOrPassDecision: state.playOrPassDecision,
+        phase: state.phase,
+        stealAttemptStatus: state.stealAttemptStatus,
+        roundComplete: state.roundComplete,
+        roundAwarded: state.roundAwarded,
+        gameOver: state.gameOver
+    });
+}
+
+/**
+ * Commit the current GameState as the latest entry in GameStateHistory, then
+ * persist. Duplicate consecutive states are collapsed so that mere redraws do
+ * not create spurious undo checkpoints.
+ */
+function commitGameState() {
+    const snapshot = deepClone(GameState);
+    const last = GameStateHistory[GameStateHistory.length - 1];
+    if (last && stateKey(last) === stateKey(snapshot)) {
+        persistHistory();
+        return;
+    }
+    GameStateHistory.push(snapshot);
+    if (GameStateHistory.length > 200) {
+        GameStateHistory.shift();
+    }
+    persistHistory();
+}
+
+// Alias used throughout the action handlers: committing records undo history.
+function saveGameState() {
+    commitGameState();
+}
+
+function createUndoCheckpoint() {
+    // Actions commit their resulting state via saveGameState(), which creates
+    // the undo history entries. Intentionally a no-op.
 }
 
 function clearSavedGame() {
@@ -147,25 +242,20 @@ function clearSavedGame() {
 }
 
 // Undo Functionality
-function createUndoCheckpoint() {
-    const checkpoint = deepClone(GameState);
-    checkpoint.revealedAnswerIndices = new Set(GameState.revealedAnswerIndices);
-    GameState.history.push(checkpoint);
-    // Limit history to reasonable size
-    if (GameState.history.length > 50) {
-        GameState.history.shift();
-    }
-}
-
 function undoLastAction() {
-    if (GameState.history.length === 0) {
+    if (GameStateHistory.length <= 1) {
+        updateUndoButton();
         return false;
     }
-    const previousState = GameState.history.pop();
-    // Restore state
-    Object.assign(GameState, deepClone(previousState));
-    GameState.revealedAnswerIndices = new Set(previousState.revealedAnswerIndices);
-    saveGameState();
+    // Drop the latest state and restore the one before it
+    GameStateHistory.pop();
+    const previous = GameStateHistory[GameStateHistory.length - 1];
+    const restored = deepClone(previous);
+    // Replace all live GameState fields with the restored snapshot
+    Object.keys(GameState).forEach(k => { delete GameState[k]; });
+    Object.assign(GameState, restored);
+    GameState.revealedAnswerIndices = new Set(previous.revealedAnswerIndices);
+    persistHistory();
     updateUI();
     return true;
 }
@@ -242,12 +332,31 @@ function resetGameForNewRound() {
 function renderMenu() {
     const resumeBtn = document.getElementById('btn-resume-game');
     if (resumeBtn) {
-        resumeBtn.disabled = savedGame === null;
+        let canResume = GameStateHistory.length > 0;
+        if (!canResume) {
+            try {
+                canResume = localStorage.getItem(LS_SAVED_GAME) !== null;
+            } catch (e) {
+                canResume = false;
+            }
+        }
+        resumeBtn.disabled = !canResume;
     }
 }
 
 function updateMenuButtons() {
     renderMenu();
+}
+
+function hasGameInProgress() {
+    // Check in-memory game first
+    if (GameStateHistory.length > 0 && !GameState.gameOver) return true;
+    // Check saved game
+    if (savedGame && savedGame.history && savedGame.history.length > 0) {
+        const last = savedGame.history[savedGame.history.length - 1];
+        if (last && !last.gameOver) return true;
+    }
+    return false;
 }
 
 function renderQuestionSets() {
@@ -292,14 +401,14 @@ function renderQuestionSets() {
 function handleQuestionSetAction(id, action) {
     if (action === 'select') {
         // Check if game in progress
-        if (savedGame && !savedGame.gameOver) {
+        if (hasGameInProgress()) {
             if (!confirm('Starting a new game will clear the current game progress. Continue?')) {
                 return;
             }
         }
-        GameState.activeQuestionSetId = id;
-        GameState.activeQuestionSet = questionSets.find(s => s.id === id);
-        GameState.history = [];
+        GameFixedState.activeQuestionSetId = id;
+        GameFixedState.activeQuestionSet = questionSets.find(s => s.id === id);
+        GameStateHistory = [];
         showScreen('screen-team-setup');
         populateTeamSetup();
     } else if (action === 'edit') {
@@ -753,12 +862,13 @@ function startNewGame() {
     GameState.teamAName = GameState.teamAName || 'Team A';
     GameState.teamBName = GameState.teamBName || 'Team B';
     GameState.gameOver = false;
-    GameState.isTiebreaker = false;
-    GameState.usedTiebreakerQuestions = [];
-    GameState.history = [];
+    GameFixedState.isTiebreaker = false;
+    GameFixedState.usedTiebreakerQuestions = [];
+    GameStateHistory = [];
     
     resetGameForNewRound();
     loadCurrentRound();
+    createUndoCheckpoint(); // Save initial state
     
     showScreen('screen-gameplay');
     updateUI();
@@ -766,19 +876,25 @@ function startNewGame() {
 }
 
 function resumeGame() {
-    if (!savedGame) return;
+    const stored = loadSavedGame();
+    if (!stored || !stored.history || stored.history.length === 0) return;
+    savedGame = stored;
     
-    // Restore state
-    Object.assign(GameState, deepClone(savedGame));
-    if (savedGame.revealedAnswerIndices) {
-        GameState.revealedAnswerIndices = new Set(savedGame.revealedAnswerIndices);
-    }
-    if (!GameState.history) GameState.history = [];
+    GameStateHistory = stored.history.map(restoreState);
     
-    // Ensure question set is loaded
-    if (GameState.activeQuestionSetId) {
-        GameState.activeQuestionSet = questionSets.find(s => s.id === GameState.activeQuestionSetId);
-    }
+    // Fixed state (static for the whole game) is restored once
+    GameFixedState = {
+        activeQuestionSetId: stored.fixedGameState.activeQuestionSetId,
+        activeQuestionSet: stored.fixedGameState.activeQuestionSet,
+        isTiebreaker: !!stored.fixedGameState.isTiebreaker,
+        usedTiebreakerQuestions: stored.fixedGameState.usedTiebreakerQuestions || []
+    };
+    
+    // Load the latest state into GameState
+    const current = GameStateHistory[GameStateHistory.length - 1];
+    Object.keys(GameState).forEach(k => { delete GameState[k]; });
+    Object.assign(GameState, deepClone(current));
+    GameState.revealedAnswerIndices = new Set(current.revealedAnswerIndices);
     
     if (GameState.gameOver) {
         showScreen('screen-results');
@@ -790,17 +906,17 @@ function resumeGame() {
 }
 
 function loadCurrentRound() {
-    const set = GameState.activeQuestionSet;
+    const set = GameFixedState.activeQuestionSet;
     if (!set || !set.questions) return;
     
-    if (GameState.isTiebreaker) {
+    if (GameFixedState.isTiebreaker) {
         // Find unused question
         let question = null;
         for (let i = set.questions.length - 1; i >= 0; i--) {
-            if (!GameState.usedTiebreakerQuestions.includes(i)) {
+            if (!GameFixedState.usedTiebreakerQuestions.includes(i)) {
                 question = set.questions[i];
                 GameState.currentQuestion = question;
-                GameState.usedTiebreakerQuestions.push(i);
+                GameFixedState.usedTiebreakerQuestions.push(i);
                 break;
             }
         }
@@ -820,13 +936,13 @@ function loadCurrentRound() {
 }
 
 function nextRound() {
-    if (GameState.isTiebreaker) {
+    if (GameFixedState.isTiebreaker) {
         // End tiebreaker
         endGame();
         return;
     }
     
-    const set = GameState.activeQuestionSet;
+    const set = GameFixedState.activeQuestionSet;
     if (!set || !set.questions) return;
     
     GameState.currentRoundIndex++;
@@ -860,7 +976,7 @@ function updateUI() {
 }
 
 function updateHeader() {
-    document.getElementById('round-number').textContent = GameState.isTiebreaker ? 'TB' : (GameState.currentRoundIndex + 1);
+    document.getElementById('round-number').textContent = GameFixedState.isTiebreaker ? 'TB' : (GameState.currentRoundIndex + 1);
     document.getElementById('current-question').textContent = GameState.currentQuestion ? GameState.currentQuestion.prompt : 'No question';
 }
 
@@ -994,7 +1110,7 @@ function updateControls() {
 function updateUndoButton() {
     const btn = document.getElementById('btn-undo');
     if (btn) {
-        btn.disabled = GameState.history.length === 0;
+        btn.disabled = GameStateHistory.length <= 1;
     }
 }
 
@@ -1062,12 +1178,11 @@ function addStrike() {
 }
 
 function resolveSteal(success) {
-    createUndoCheckpoint();
     if (GameState.stealAttemptStatus !== 'PENDING') {
         alert('Steal already resolved');
-        GameState.history.pop();
         return;
     }
+    createUndoCheckpoint();
     GameState.stealAttemptStatus = success ? 'SUCCESS' : 'FAILED';
     GameState.roundComplete = true;
     GameState.phase = PHASES.ROUND_COMPLETE;
@@ -1080,28 +1195,31 @@ function awardPoints() {
         alert('Round already awarded');
         return;
     }
-    createUndoCheckpoint();
-    GameState.roundAwarded = true;
-    
-    let winnerTeam = GameState.currentTeam;
+    // The team currently on the board is the default recipient of the round.
+    // (In the rare case the face-off winner was never routed through PLAY/PASS,
+    // fall back to the face-off winner so points are never silently lost.)
+    const playingTeam = GameState.currentTeam || GameState.faceoffWinner;
+    let winnerTeam = playingTeam;
+
     if (GameState.stealAttemptStatus === 'SUCCESS') {
-        // Opposing team won steal
-        winnerTeam = (GameState.currentTeam === 'A') ? 'B' : 'A';
+        // Opposing team won the steal and takes the round.
+        winnerTeam = (playingTeam === 'A') ? 'B' : 'A';
     } else if (GameState.stealAttemptStatus === 'FAILED') {
-        // Original playing team keeps points
-        winnerTeam = GameState.currentTeam;
+        // Steal failed, original playing team keeps the round.
+        winnerTeam = playingTeam;
     }
-    // If all answers revealed, current team gets points
+    // If every answer was revealed, the playing team wins the round.
     if (GameState.currentQuestion.answers.length === GameState.revealedAnswerIndices.size) {
-        winnerTeam = GameState.currentTeam;
+        winnerTeam = playingTeam;
     }
-    
+
     if (winnerTeam === 'A') {
         GameState.teamAScore += GameState.roundPoints;
     } else if (winnerTeam === 'B') {
         GameState.teamBScore += GameState.roundPoints;
     }
     
+    GameState.roundAwarded = true;
     GameState.phase = PHASES.AWARDED;
     saveGameState();
     updateUI();
@@ -1142,23 +1260,24 @@ function setupMoreEventListeners() {
     });
     
     document.getElementById('btn-replay').addEventListener('click', () => {
-        if (GameState.activeQuestionSet) {
+        if (GameFixedState.activeQuestionSet) {
             clearSavedGame();
             startNewGame();
         }
     });
     
     document.getElementById('btn-start-tiebreaker').addEventListener('click', () => {
-        if (!GameState.activeQuestionSet) return;
+        if (!GameFixedState.activeQuestionSet) return;
         clearSavedGame();
-        GameState.isTiebreaker = true;
+        GameFixedState.isTiebreaker = true;
         GameState.currentRoundIndex = 0;
         GameState.teamAScore = 0;
         GameState.teamBScore = 0;
         GameState.gameOver = false;
-        GameState.history = [];
+        GameStateHistory = [];
         resetGameForNewRound();
         loadCurrentRound();
+        createUndoCheckpoint();
         showScreen('screen-gameplay');
         updateUI();
         saveGameState();

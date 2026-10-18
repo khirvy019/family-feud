@@ -39,6 +39,54 @@ A fully functional, browser-based Family Feud-style game built with vanilla HTML
 - **Game State**: Stored in `localStorage` under key `ff_savedGame`
 - **Clearing browser data will erase saved content**
 
+### Saved Game Shape
+
+The current game is persisted as a single object that separates data which is
+constant for the whole game from the per-action history:
+
+```js
+{
+  fixedGameState: {
+    activeQuestionSetId,        // which saved question set is being played
+    isTiebreaker,               // whether this is a tiebreaker round
+    usedTiebreakerQuestions     // indices already used for tiebreakers
+  },
+  history: [                    // ordered snapshots; last element == current state
+    // each entry: currentRoundIndex, currentQuestion, team names, scores,
+    // revealedAnswerIndices (array on disk, Set in memory), roundPoints,
+    // strikes, currentTeam, faceoffWinner, playOrPassDecision, phase,
+    // stealAttemptStatus, roundComplete, roundAwarded, gameOver
+  ]
+}
+```
+
+- `history[0]` is the earliest recorded state and `history[history.length - 1]`
+  is the current state.
+- Undo simply drops the last entry and loads the new last entry into the live
+  `GameState`, then re-persists.
+- Large/static fields (the whole question set) are **not** duplicated into every
+  snapshot; only the question set id lives in `fixedGameState`.
+- Duplicate consecutive snapshots are collapsed, so redraws never create extra
+  undo steps.
+
+### Code Structure
+
+- `index.html` – screens and markup.
+- `style.css` – visual design and responsive rules.
+- `app.js` – split into:
+  - State (`createEmptyGameState`, `GameState`, `GameFixedState`, `GameStateHistory`)
+  - Persistence (`loadQuestionSets`, `saveQuestionSets`, `loadSavedGame`, `persistHistory`, `commitGameState`)
+  - Undo (`undoLastAction`)
+  - Parsing (`parseQuestionSetFromText`)
+  - Rendering (`updateUI` and friends)
+  - Phase transitions and actions (`startFaceoff`, `selectFaceoffWinner`, `playOrPass`, `revealAnswer`, `addStrike`, `resolveSteal`, `awardPoints`, `nextRound`, `endGame`)
+
+## Game Phases
+
+`READY → FACEOFF → PLAY_OR_PASS → BOARD_PLAY → (STEAL) → ROUND_COMPLETE → AWARDED → (next round)`.
+Only controls valid for the current phase are rendered, and each action commits a
+new state snapshot for undo.
+
 ## Tips for iPad
 
 - Use landscape orientation for best experience
