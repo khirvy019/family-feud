@@ -1,0 +1,20 @@
+1. Name a common pet
+- 40: Dog
+- 30: Cat
+- 15: Fish
+- 10: Bird
+- 5: Hamster
+
+2. Name a fruit people often put in cereal
+- 35: Banana
+- 25: Strawberry
+- 20: Blueberry
+- 15: Apple
+- 5: Raisin
+
+3. Name something you might find at a beach
+- 30: Sand
+- 25: Water
+- 20: Seashells
+- 15: Umbrella
+- 10: Beach ball

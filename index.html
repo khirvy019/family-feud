@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Feud - Family Game Night</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Main Menu Screen -->
+    <div id="screen-menu" class="screen active">
+        <div class="menu-container">
+            <h1 class="game-title">FAMILY FEUD</h1>
+            <div class="menu-options">
+                <button id="btn-new-question-set" class="menu-btn">Create New Question Set</button>
+                <button id="btn-paste-question-set" class="menu-btn">Paste Question Set (Text)</button>
+                <button id="btn-select-question-set" class="menu-btn">Select Saved Question Set</button>
+                <button id="btn-start-game" class="menu-btn">Start New Game</button>
+                <button id="btn-resume-game" class="menu-btn" disabled>Resume Saved Game</button>
+                <button id="btn-manage-question-sets" class="menu-btn">Manage Question Sets</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Question Set Selection/Management Screen -->
+    <div id="screen-question-sets" class="screen">
+        <div class="screen-header">
+            <h2 id="question-sets-title">Question Sets</h2>
+            <button id="btn-back-from-qs" class="back-btn">← Back to Menu</button>
+        </div>
+        <div class="qs-content">
+            <div id="qs-list-container" class="qs-list"></div>
+        </div>
+    </div>
+
+    <!-- Question Editor Screen -->
+    <div id="screen-editor" class="screen">
+        <div class="screen-header">
+            <h2>Question Set Editor</h2>
+            <button id="btn-back-from-editor" class="back-btn">← Back to Menu</button>
+        </div>
+        <div class="editor-content">
+            <div class="editor-section">
+                <label for="set-name" class="editor-label">Question Set Name:</label>
+                <input type="text" id="set-name" class="editor-input" placeholder="Enter set name">
+            </div>
+            
+            <div class="editor-section">
+                <h3>Questions</h3>
+                <div id="questions-list" class="questions-list"></div>
+                <button id="btn-add-question" class="editor-btn">+ Add Question</button>
+            </div>
+            
+            <div class="editor-actions">
+                <button id="btn-save-question-set" class="primary-btn">Save Question Set</button>
+                <button id="btn-cancel-editor" class="secondary-btn">Cancel</button>
+            </div>
+            <div id="editor-validation" class="validation-msg"></div>
+        </div>
+    </div>
+
+    <!-- Team Setup Screen -->
+    <div id="screen-team-setup" class="screen">
+        <div class="screen-header">
+            <h2>Team Setup</h2>
+            <button id="btn-back-from-team-setup" class="back-btn">← Back</button>
+        </div>
+        <div class="team-setup-content">
+            <div class="team-input">
+                <label for="team-a-name">Team A Name:</label>
+                <input type="text" id="team-a-name" class="team-input-field" value="Team A" maxlength="20">
+            </div>
+            <div class="team-input">
+                <label for="team-b-name">Team B Name:</label>
+                <input type="text" id="team-b-name" class="team-input-field" value="Team B" maxlength="20">
+            </div>
+            <div class="team-setup-actions">
+                <button id="btn-start-game-confirmed" class="primary-btn large">Start Game</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gameplay Screen -->
+    <div id="screen-gameplay" class="screen">
+        <div class="game-header">
+            <div class="game-title-bar">
+                <h1>FAMILY FEUD</h1>
+                <div class="round-info">Round <span id="round-number">1</span></div>
+            </div>
+            <div class="question-area">
+                <div class="question-label">QUESTION:</div>
+                <div id="current-question" class="current-question">No question loaded</div>
+            </div>
+        </div>
+        
+        <div class="game-main">
+            <div class="scoreboard">
+                <div class="team-score" id="score-team-a">
+                    <div class="team-name" id="display-team-a">Team A</div>
+                    <div class="team-points" id="team-a-points">0</div>
+                </div>
+                <div class="team-score" id="score-team-b">
+                    <div class="team-name" id="display-team-b">Team B</div>
+                    <div class="team-points" id="team-b-points">0</div>
+                </div>
+            </div>
+            
+            <div class="board-area">
+                <div class="answer-board">
+                    <div id="answers-container" class="answers-container"></div>
+                </div>
+                
+                <div class="game-info">
+                    <div class="round-total">
+                        <div class="info-label">Round Points</div>
+                        <div id="round-points" class="info-value">0</div>
+                    </div>
+                    <div class="strikes">
+                        <div class="info-label">Strikes</div>
+                        <div class="strike-indicators">
+                            <div id="strike-1" class="strike-x">X</div>
+                            <div id="strike-2" class="strike-x">X</div>
+                            <div id="strike-3" class="strike-x">X</div>
+                        </div>
+                    </div>
+                    <div class="game-phase-info">
+                        <div class="info-label">Phase</div>
+                        <div id="game-phase" class="info-value-small">Ready</div>
+                        <div class="info-label">Team</div>
+                        <div id="current-team" class="info-value-small">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="host-controls">
+            <div class="host-row">
+                <button id="btn-undo" class="host-btn secondary">Undo</button>
+                <button id="btn-end-game" class="host-btn secondary">End Game</button>
+            </div>
+            <div id="controls-dynamic" class="controls-dynamic">
+                <!-- Dynamic controls based on game phase -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Screen -->
+    <div id="screen-results" class="screen">
+        <div class="results-container">
+            <h1 class="results-title">GAME RESULTS</h1>
+            <div class="winner-section">
+                <div id="winner-message" class="winner-message">Winner: Team A</div>
+            </div>
+            <div class="final-scores">
+                <div class="final-team">
+                    <div id="final-team-a-name">Team A</div>
+                    <div id="final-team-a-score">0</div>
+                </div>
+                <div class="final-team">
+                    <div id="final-team-b-name">Team B</div>
+                    <div id="final-team-b-score">0</div>
+                </div>
+            </div>
+            <div id="tiebreaker-section" class="tiebreaker-section" style="display:none;">
+                <p>Tie detected! Start a tiebreaker?</p>
+                <button id="btn-start-tiebreaker" class="primary-btn">Start Tiebreaker</button>
+            </div>
+            <div class="results-actions">
+                <button id="btn-return-menu" class="primary-btn">Return to Main Menu</button>
+                <button id="btn-replay" class="primary-btn">Replay Same Question Set</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Paste Question Set Modal -->
+    <div id="modal-paste" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h2>Paste Question Set</h2>
+            <div class="modal-section">
+                <label for="paste-name">Question Set Name:</label>
+                <input type="text" id="paste-name" class="modal-input" placeholder="Enter set name" style="width:100%;padding:12px;font-size:1rem;">
+            </div>
+            <div class="modal-section">
+                <label for="paste-text">Paste your questions in this format:</label>
+                <textarea id="paste-text" class="modal-textarea" style="min-height:200px;" placeholder="1. Question one
+- 40: Answer 1
+- 30: Answer 2
+- 20: Answer 3
+
+2. Question two
+- 50: Answer 1
+- 30: Answer 2"></textarea>
+                <p style="font-size:0.875rem;color:var(--text-dark);margin-top:6px;">Format: 1. Question<br>- 40: Answer (points before colon)</p>
+            </div>
+            <div class="modal-actions">
+                <button id="btn-save-paste" class="primary-btn">Save Question Set</button>
+                <button id="btn-cancel-paste" class="secondary-btn">Cancel</button>
+            </div>
+            <div id="paste-validation" class="validation-msg"></div>
+        </div>
+    </div>
+
+    <!-- Question Editor Modal for Adding/Editing Question -->
+    <div id="modal-question" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h2 id="modal-question-title">Add Question</h2>
+            <div class="modal-section">
+                <label for="question-prompt">Question Prompt:</label>
+                <textarea id="question-prompt" class="modal-textarea" placeholder="Enter the question"></textarea>
+            </div>
+            <div class="modal-section">
+                <h3>Answers</h3>
+                <div id="modal-answers-list" class="modal-answers-list"></div>
+                <button id="btn-add-modal-answer" class="editor-btn">+ Add Answer</button>
+            </div>
+            <div class="modal-actions">
+                <button id="btn-save-modal-question" class="primary-btn">Save Question</button>
+                <button id="btn-cancel-modal-question" class="secondary-btn">Cancel</button>
+            </div>
+            <div id="modal-question-validation" class="validation-msg"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+
+</body>
+</html>
