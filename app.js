@@ -53,6 +53,7 @@ let GameStateHistory = []; // Array of GameState snapshots, 0 = earliest, last =
 let currentScreen = 'screen-menu';
 let editingQuestionSetId = null;
 let editingQuestionId = null;
+let editingQuestionSet = null; // working draft currently open in the editor
 
 // Constants
 const PHASES = {
@@ -415,10 +416,12 @@ function handleQuestionSetAction(id, action) {
         showScreen('screen-team-setup');
         populateTeamSetup();
     } else if (action === 'edit') {
-        editingQuestionSetId = id;
-        const set = questionSets.find(s => s.id === id);
-        if (set) {
-            openEditorForSet(set);
+        const original = questionSets.find(s => s.id === id);
+        if (original) {
+            editingQuestionSetId = id;
+            // Edit a copy so Cancel discards changes.
+            editingQuestionSet = deepClone(original);
+            openEditorForSet(editingQuestionSet);
         }
     } else if (action === 'delete') {
         if (confirm('Are you sure you want to delete this question set?')) {
@@ -435,8 +438,10 @@ function populateTeamSetup() {
 }
 
 function openEditorForSet(set) {
-    document.getElementById('set-name').value = set.name;
-    renderQuestionsList(set.questions);
+    editingQuestionSet = set;
+    if (!editingQuestionSet.questions) editingQuestionSet.questions = [];
+    document.getElementById('set-name').value = set.name || '';
+    renderQuestionsList(editingQuestionSet.questions);
     showScreen('screen-editor');
     hideValidation('editor-validation');
 }
@@ -480,11 +485,9 @@ function handleQuestionAction(questions, idx, action) {
         editingQuestionId = idx;
         openQuestionModal(questions[idx], idx);
     } else if (action === 'delete-q') {
+        // `questions` is editingQuestionSet.questions (same reference), so the
+        // draft is updated directly and only persisted on Save.
         questions.splice(idx, 1);
-        const set = questionSets.find(s => s.id === editingQuestionSetId);
-        if (set) {
-            set.questions = questions;
-        }
         renderQuestionsList(questions);
     } else if (action === 'up') {
         if (idx > 0) {
@@ -679,9 +682,12 @@ function hideValidation(elementId) {
 function setupEventListeners() {
     // Menu
     document.getElementById('btn-new-question-set').addEventListener('click', () => {
+        // Create a working draft immediately so questions can be added before saving.
         editingQuestionSetId = null;
+        editingQuestionId = null;
+        editingQuestionSet = { id: generateId(), name: '', questions: [] };
         document.getElementById('set-name').value = '';
-        renderQuestionsList([]);
+        renderQuestionsList(editingQuestionSet.questions);
         showScreen('screen-editor');
         hideValidation('editor-validation');
     });
@@ -761,29 +767,33 @@ function setupEventListeners() {
     });
     
     document.getElementById('btn-save-question-set').addEventListener('click', () => {
+        if (!editingQuestionSet) {
+            // Defensive: should not happen, but never silently drop work.
+            editingQuestionSet = { id: generateId(), name: '', questions: [] };
+        }
         const setName = document.getElementById('set-name').value.trim();
         if (!setName) {
             showValidation('editor-validation', 'Question set name cannot be empty');
             return;
         }
-        
-        // Find or create question set
-        let set = null;
-        if (editingQuestionSetId) {
-            set = questionSets.find(s => s.id === editingQuestionSetId);
-        } else {
-            set = { id: generateId(), name: '', questions: [] };
-            questionSets.push(set);
-            editingQuestionSetId = set.id;
-        }
-        set.name = setName;
-        
-        const err = validateQuestionSet(set);
+        editingQuestionSet.name = setName;
+        if (!editingQuestionSet.questions) editingQuestionSet.questions = [];
+
+        const err = validateQuestionSet(editingQuestionSet);
         if (err) {
             showValidation('editor-validation', err);
             return;
         }
-        
+
+        // Insert or replace the draft in the saved collection.
+        const idx = questionSets.findIndex(s => s.id === editingQuestionSet.id);
+        if (idx >= 0) {
+            questionSets[idx] = editingQuestionSet;
+        } else {
+            questionSets.push(editingQuestionSet);
+        }
+        editingQuestionSetId = editingQuestionSet.id;
+
         saveQuestionSets();
         hideValidation('editor-validation');
         alert('Question set saved!');
@@ -826,24 +836,28 @@ function setupEventListeners() {
             showValidation('modal-question-validation', err);
             return;
         }
-        
-        // Save to current question set
-        const set = questionSets.find(s => s.id === editingQuestionSetId);
-        if (set) {
-            if (editingQuestionId !== null && editingQuestionId !== undefined) {
-                set.questions[editingQuestionId] = question;
-            } else {
-                if (!set.questions) set.questions = [];
-                set.questions.push(question);
-            }
-            renderQuestionsList(set.questions);
+
+        // Save into the working draft (works for new and existing sets alike).
+        if (!editingQuestionSet) {
+            editingQuestionSet = { id: generateId(), name: '', questions: [] };
         }
-        
+        if (!editingQuestionSet.questions) editingQuestionSet.questions = [];
+
+        if (editingQuestionId !== null && editingQuestionId !== undefined &&
+            editingQuestionId >= 0 && editingQuestionId < editingQuestionSet.questions.length) {
+            editingQuestionSet.questions[editingQuestionId] = question;
+        } else {
+            editingQuestionSet.questions.push(question);
+        }
+        renderQuestionsList(editingQuestionSet.questions);
+
+        editingQuestionId = null;
         document.getElementById('modal-question').style.display = 'none';
         hideValidation('modal-question-validation');
     });
     
     document.getElementById('btn-cancel-modal-question').addEventListener('click', () => {
+        editingQuestionId = null;
         document.getElementById('modal-question').style.display = 'none';
         hideValidation('modal-question-validation');
     });
